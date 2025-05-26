@@ -1,5 +1,5 @@
 - name: Get and list all FMC domains
-  hosts: fmc
+  hosts: fmc_inventory
   connection: httpapi
   gather_facts: false
   vars:
