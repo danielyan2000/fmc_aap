@@ -1,0 +1,6 @@
+[all:vars]
+ansible_network_os=cisco.fmcansible.fmc
+
+[fmc]
+#192.0.2.2 ansible_httpapi_port=443 ansible_httpapi_use_ssl=True ansible_httpapi_validate_certs=False
+10.255.0.16 ansible_httpapi_port=443 ansible_httpapi_use_ssl=True ansible_httpapi_validate_certs=False
