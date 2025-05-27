@@ -8,7 +8,7 @@
 
   tasks:
     - name: Update username and password variables
-      no_log: true
+      #no_log: true
       ansible.builtin.set_fact:
         ansible_user: "{{ api_username }}"
         ansible_password: "{{ api_password }}"
