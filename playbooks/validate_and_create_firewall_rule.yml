@@ -1,0 +1,135 @@
+- name: Validate and create firewall rule
+  hosts: fmc
+  connection: httpapi
+  gather_facts: false
+  vars:
+    api_username: fmc.ansible.readonly #api
+    api_password: Abcd123$! #P4$$w0rd!
+    device_name: ftd-1
+
+    ftd_rule:
+      rule_name: TEST_#2
+      rule_position: 1
+      source_interface_logical_name: test210
+      source_address: 10.123.101.79
+      destination_interface_logical_name: Outside
+      destination_address: 8.8.8.9
+      protocol: UDP
+      port: 53
+      action: ALLOW
+
+  tasks:
+    - name: Update username and password variables
+      no_log: true
+      ansible.builtin.set_fact:
+        ansible_user: "{{ api_username }}"
+        ansible_password: "{{ api_password }}"
+
+    - name: Get FMC Domain List
+      cisco.fmcansible.fmc_configuration:
+        operation: getAllDomain
+        register_as: domain
+
+    - name: Get 'Global' domain UUID
+      vars:
+        json_query: "[?name=='Global'].uuid | [0]"
+      ansible.builtin.set_fact:
+        domain_uuid: "{{ domain | community.general.json_query(json_query) }}"
+
+    - name: Get all devices list
+      cisco.fmcansible.fmc_configuration:
+        operation: "getAllDevice"
+        path_params:
+            domainUUID: "{{ domain_uuid }}"
+        query_params:
+          limit: 1000
+          expanded: true
+        register_as: devices
+
+    - name: Get device UUID - {{ device_name }}
+      vars:
+        json_query: "[?name=='{{ device_name }}'] | [0].{id: id, access_policy_id: accessPolicy.id}"
+      ansible.builtin.set_fact:
+        device: "{{ devices | community.general.json_query(json_query) }}"
+
+    - name: Get all device sub-interfaces list - {{ device_name }}
+      cisco.fmcansible.fmc_configuration:
+        operation: "getAllFTDSubInterface"
+        path_params:
+            containerUUID: "{{ device.id }}"
+            domainUUID: "{{ domain_uuid }}"
+        query_params:
+            limit: 1000
+            expanded: true
+        register_as: subinterfaces
+
+    - name: Validate if the firewall rule is not already configured
+      vars:
+        json_query: "[?ifname=='{{ ftd_rule.source_interface_logical_name }}'] | [0].{id:id, type:type}"
+        source_interface: "{{ subinterfaces | community.general.json_query(json_query) }}"
+      cisco.fmcansible.fmc_configuration:
+        operation: "createPacketTracer"
+        data:
+          device:
+            id: "{{ device.id }}"
+            type: Device
+            name: "{{ device_name }}"
+          interface:
+            id: "{{ source_interface.id }}"
+            type: "{{ source_interface.type }}"
+            name: "{{ ftd_rule.source_interface_logical_name }}"
+          protocol: "{{ ftd_rule.protocol }}"
+          sourceIPType: IPv4
+          sourceIPValue: "{{ ftd_rule.source_address }}"
+          destinationIPType: IPv4
+          destinationIPValue: "{{ ftd_rule.destination_address }}"
+          sourcePort: "1234"
+          destinationPort: "{{ ftd_rule.port }}"
+        path_params:
+          domainUUID: "{{ domain_uuid }}"
+        register_as: packet_tracer_result
+
+    - name: Configure firewall rule
+      vars:
+        src_json_query: "[?ifname=='{{ ftd_rule.source_interface_logical_name }}'] | [0].{id:securityZone.id, type:securityZone.type}"
+        source_zone: "{{ subinterfaces | community.general.json_query(src_json_query) }}"
+        dst_json_query: "[?ifname=='{{ ftd_rule.destination_interface_logical_name }}'] | [0].{id:securityZone.id, type:securityZone.type}"
+        destination_zone: "{{ subinterfaces | community.general.json_query(dst_json_query) }}"
+      when: packet_tracer_result.deviceResponse.0.result.action == "drop"
+      cisco.fmcansible.fmc_configuration:
+        operation: "createMultipleAccessRule"
+        data:
+          name: "{{ ftd_rule.rule_name }}"
+          type: AccessRule
+          action: "{{ ftd_rule.action }}"
+          enableSyslog: false
+          enabled: true
+          logBegin: false
+          logEnd: false
+          logFiles: false
+          sendEventsToFMC: false
+          destinationNetworks:
+            literals:
+              - type: Host
+                value: "{{ ftd_rule.destination_address }}"
+          destinationPorts:
+            literals:
+              - port: "{{ ftd_rule.port }}"
+                protocol: "{{ {'UDP': '17', 'TCP':'6'}[ftd_rule.protocol] }}"
+                type: PortLiteral
+          destinationZones:
+            objects:
+              - id: "{{ destination_zone.id }}"
+                type: "{{ destination_zone.type }}"
+          sourceNetworks:
+            literals:
+              - type: Host
+                value: "{{ ftd_rule.source_address }}"
+          sourceZones:
+            objects:
+              - id: "{{ source_zone.id }}"
+                type: "{{ source_zone.type }}"
+        path_params:
+          containerUUID: "{{ device.access_policy_id }}"
+          domainUUID: "{{ domain_uuid }}"
+        register_as: access_rule
