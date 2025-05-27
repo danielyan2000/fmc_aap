@@ -4,7 +4,6 @@
   gather_facts: false
   vars:
     api_username: fmc.ansible.readonly #api
-    api_password: Abcd123$! #P4$$w0rd!
     device_name: ftd-1
 
     ftd_rule:
@@ -19,11 +18,11 @@
       action: ALLOW
 
   tasks:
-    - name: Update username and password variables
-      no_log: true
-      ansible.builtin.set_fact:
-        ansible_user: "{{ api_username }}"
-        ansible_password: "{{ api_password }}"
+    #- name: Update username and password variables
+      #no_log: true
+      #ansible.builtin.set_fact:
+        #ansible_user: "{{ api_username }}"
+        #ansible_password: "{{ api_password }}"
 
     - name: Get FMC Domain List
       cisco.fmcansible.fmc_configuration:
