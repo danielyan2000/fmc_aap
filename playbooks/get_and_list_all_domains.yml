@@ -4,7 +4,7 @@
   gather_facts: false
   vars:
     api_username: fmc.ansible.readonly
-    #api_password: Abcd123$!
+    ansible_password: "{{ api_password }}"
 
   tasks:
     #- name: Update username and password variables
