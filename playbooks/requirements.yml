@@ -1,4 +1,4 @@
 ---
-#collections:
-#  - name: cisco.fmcansible
-#    version: "==1.0.2"
+collections:
+  - name: cisco.fmcansible
+    version: "==1.0.2"
