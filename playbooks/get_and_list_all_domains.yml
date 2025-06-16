@@ -3,16 +3,10 @@
   connection: httpapi
   gather_facts: false
   vars:
-    api_username: fmc.ansible.readonly
+    ansible_user: "{{ api_username }}"
     ansible_password: "{{ api_password }}"
 
   tasks:
-    #- name: Update username and password variables
-      #no_log: true
-      #ansible.builtin.set_fact:
-        #ansible_user: "{{ api_username }}"
-        #ansible_password: "{{ api_password }}"
-
     - name: Get FMC Domain List
       cisco.fmcansible.fmc_configuration:
         operation: getAllDomain
