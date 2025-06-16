@@ -3,8 +3,8 @@
   connection: httpapi
   gather_facts: false
   vars:
-    ansible_user: "{{ api_username }}"
-    ansible_password: "{{ api_password }}"
+    ansible_user: "{{ ansible_username }}"
+    ansible_password: "{{ ansible_password }}"
 
   tasks:
     - name: Get FMC Domain List
