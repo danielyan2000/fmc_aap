@@ -1,4 +1,4 @@
-- name: Get and list all FMC domains
+- name: Get and list all FMC domains for a chanfe as demo
   hosts: fmc_inventory
   connection: httpapi
   gather_facts: false
