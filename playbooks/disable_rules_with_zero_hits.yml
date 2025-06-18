@@ -1,0 +1,76 @@
+---
+- name: Get hit counts
+  hosts: fmc
+  connection: httpapi
+  gather_facts: false
+  vars:
+    api_username: api
+    api_password: P4$$w0rd!
+    device_name: ftd-1
+    limit: 1000
+    domain_name: Global
+
+  tasks:
+    - name: Update username and password variables
+      ansible.builtin.set_fact:
+        ansible_user: "{{ api_username }}"
+        ansible_password: "{{ api_password }}"
+
+    - name: Get FMC Domain List
+      cisco.fmcansible.fmc_configuration:
+        operation: getAllDomain
+        register_as: domain
+
+    - name: Get the UUID of the domain {{ domain_name }}
+      vars:
+        json_query: "[?name=='{{ domain_name }}'].uuid | [0]"
+      ansible.builtin.set_fact:
+        domain_uuid: "{{ domain | community.general.json_query(json_query) }}"
+
+    - name: Get all devices in the domain {{ domain_name }}
+      cisco.fmcansible.fmc_configuration:
+        operation: "getAllDevice"
+        path_params:
+          domainUUID: "{{ domain_uuid }}"
+        query_params:
+          expanded: true
+        register_as: devices
+
+    - name: Get the UUID of the ACP associated to the FTD {{ device_name }}
+      vars:
+        json_query: "[?name=='{{ device_name }}'].accessPolicy.id | [0]"
+      ansible.builtin.set_fact:
+        container_uuid: "{{ devices | community.general.json_query(json_query) }}"
+
+    - name: Get UUID of the FTD {{ device_name }}
+      vars:
+        json_query: "[?name=='{{ device_name }}'].id | [0]"
+      ansible.builtin.set_fact:
+        device_uuid: "{{ devices | community.general.json_query(json_query) }}"
+
+    - name: Update Hit Counts
+      cisco.fmcansible.fmc_configuration:
+        operation: "updateHitCount"
+        path_params:
+          domainUUID: "{{ domain_uuid }}"
+          containerUUID: "{{ container_uuid }}"
+        query_params:
+          filter: "deviceId:{{ device_uuid }}"
+
+    - name: Get the Access Control Policy total pages
+      cisco.fmcansible.fmc_configuration:
+        operation: "getHitCount"
+        path_params:
+          domainUUID: "{{ domain_uuid }}"
+          containerUUID: "{{ container_uuid }}"
+        query_params:
+          filter: "deviceId:{{ device_uuid }}"
+          limit: "{{ limit }}"
+          expanded: true
+      register: hit_counts
+
+    - name: Disable the rules with zero hits per page
+      ansible.builtin.include_tasks: tasks/disable_rules_with_zero_hits_per_page.yml
+      loop: "{{ range(0, hit_counts.response.paging.pages | int) }}"
+      loop_control:
+        loop_var: page

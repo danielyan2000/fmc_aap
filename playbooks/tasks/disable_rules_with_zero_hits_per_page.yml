@@ -1,0 +1,56 @@
+---
+- name: Get all access control rules with all attributes - Page {{ page }}
+  cisco.fmcansible.fmc_configuration:
+    operation: "getAllAccessRule"
+    path_params:
+      containerUUID: "{{ container_uuid }}"
+      domainUUID: "{{ domain_uuid }}"
+    query_params:
+      expanded: true
+      limit: "{{ limit }}"
+      offset: "{{ limit * page }}"
+    register_as: access_control_rules
+
+- name: Get all rules with hit counts - Page {{ page }}
+  cisco.fmcansible.fmc_configuration:
+    operation: "getHitCount"
+    path_params:
+      domainUUID: "{{ domain_uuid }}"
+      containerUUID: "{{ container_uuid }}"
+    query_params:
+      filter: "deviceId:{{ device_uuid }}"
+      expanded: true
+      limit: "{{ limit }}"
+      offset: "{{ limit * page }}"
+    register_as: access_control_rules_with_hit_counts
+
+- name: Create the zero hit rules list
+  vars:
+    keys_to_remove:
+      - enabled
+      - metadata
+      - commentHistoryList
+    access_rules_with_no_hits: "{{ access_control_rules_with_hit_counts |
+      community.general.json_query('[?hitCount==`0`].rule') |
+      map('combine', {'enabled': false}) | list }}"
+    access_rules_with_action: "{{ access_control_rules | ansible.utils.remove_keys(keys_to_remove) }}"
+  ansible.builtin.set_fact:
+    zero_hit_rules: "{{ access_rules_with_no_hits |
+      community.general.lists_mergeby(access_rules_with_action, 'id') |
+      community.general.json_query('[?enabled!=null]') |
+      community.general.json_query('[?type!=`AccessPolicyDefaultAction`]') }}"
+
+- name: Disable the rules with zero hits - Page {{ page }}
+  cisco.fmcansible.fmc_configuration:
+    operation: "updateMultipleAccessRule"
+    path_params:
+      domainUUID: "{{ domain_uuid }}"
+      containerUUID: "{{ container_uuid }}"
+    data: "{{ zero_hit_rules }}"
+    query_params:
+      bulk: true
+      partialUpdate: true
+
+- name: Restart zero hit rules list
+  ansible.builtin.set_fact:
+    zero_hit_rules: []

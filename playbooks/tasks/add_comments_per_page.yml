@@ -1,0 +1,31 @@
+---
+- name: Get all access control rules with all attributes - Page {{ page }}
+  cisco.fmcansible.fmc_configuration:
+    operation: "getAllAccessRule"
+    path_params:
+      containerUUID: "{{ container_uuid }}"
+      domainUUID: "{{ domain_uuid }}"
+    query_params:
+      expanded: true
+      limit: "{{ limit }}"
+      offset: "{{ limit * page }}"
+    register_as: access_control_rules
+
+- name: Create the access rule list with comments - Page {{ page }}
+  ansible.builtin.set_fact:
+    access_rules_with_comments: "{{ access_control_rules |
+      community.general.json_query('[*] | [?commentHistoryList == null]') |
+      ansible.utils.remove_keys('metadata') |
+      map('combine', {'newComments': [rule_comment]}) | list }}"
+
+- name: Update Access Rule Comments - Page {{ page }}
+  cisco.fmcansible.fmc_configuration:
+    operation: "updateMultipleAccessRule"
+    path_params:
+      containerUUID: "{{ container_uuid }}"
+      domainUUID: "{{ domain_uuid }}"
+    data: "{{ access_rules_with_comments }}"
+    query_params:
+      bulk: true
+      partialUpdate: true
+  when: access_rules_with_comments

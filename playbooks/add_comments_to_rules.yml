@@ -1,0 +1,76 @@
+---
+- name: Add comments to rules
+  hosts: fmc
+  connection: httpapi
+  gather_facts: false
+  vars:
+    api_username: api
+    api_password: P4$$w0rd!
+    device_name: ftd-1
+    limit: 1000
+    domain_name: Global
+    rule_comment: "Legacy rules, as per Algosec conformance CRQ#1234567"
+
+  tasks:
+    - name: Update username and password variables
+      no_log: true
+      ansible.builtin.set_fact:
+        ansible_user: "{{ api_username }}"
+        ansible_password: "{{ api_password }}"
+
+    - name: Get FMC Domain List
+      cisco.fmcansible.fmc_configuration:
+        operation: getAllDomain
+        register_as: domain
+
+    - name: Get the UUID of the domain {{ domain_name }}
+      vars:
+        json_query: "[?name=='{{ domain_name }}'].uuid | [0]"
+      ansible.builtin.set_fact:
+        domain_uuid: "{{ domain | community.general.json_query(json_query) }}"
+
+    - name: Verify if the given domain exists
+      ansible.builtin.assert:
+        that: domain_uuid
+        success_msg: "The domain was found"
+        fail_msg: "The domain was not found. Please review your spelling."
+        quiet: true
+
+    - name: Get all devices in the domain {{ domain_name }}
+      cisco.fmcansible.fmc_configuration:
+        operation: "getAllDevice"
+        path_params:
+          domainUUID: "{{ domain_uuid }}"
+        query_params:
+          expanded: true
+        register_as: devices
+
+    - name: Get the UUID of the ACP associated to the FTD {{ device_name }}
+      vars:
+        json_query: "[?name=='{{ device_name }}'].accessPolicy.id | [0]"
+      ansible.builtin.set_fact:
+        container_uuid: "{{ devices | community.general.json_query(json_query) }}"
+
+    - name: Verify if the given device exists
+      ansible.builtin.assert:
+        that: container_uuid
+        success_msg: "The device was found"
+        fail_msg: "The device was not found. Please review your spelling."
+        quiet: true
+
+    - name: Get the Access Control Policy total pages
+      cisco.fmcansible.fmc_configuration:
+        operation: "getAllAccessRule"
+        path_params:
+          domainUUID: "{{ domain_uuid }}"
+          containerUUID: "{{ container_uuid }}"
+        query_params:
+          limit: "{{ limit }}"
+          expanded: true
+      register: access_rules
+
+    - name: Add comments to the rules per page
+      ansible.builtin.include_tasks: tasks/add_comments_per_page.yml
+      loop: "{{ range(0, access_rules.response.paging.pages | int) }}"
+      loop_control:
+        loop_var: page

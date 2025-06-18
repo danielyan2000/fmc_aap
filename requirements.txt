@@ -1,0 +1,4 @@
+ansible
+urllib3
+lxml
+jmespath

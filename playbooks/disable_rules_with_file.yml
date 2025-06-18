@@ -1,0 +1,116 @@
+---
+- name: Get hit counts
+  hosts: fmc
+  connection: httpapi
+  gather_facts: false
+  vars:
+    api_username: api
+    api_password: P4$$w0rd!
+    device_name: ftd-1
+    limit: 1000
+    domain_name: Global
+    filter_file_path: ../filter.csv
+
+  tasks:
+    - name: Read data from CSV file
+      community.general.read_csv:
+        path: "{{ filter_file_path }}"
+      register: filter_list
+      delegate_to: localhost
+
+    - name: Extract name values from filter_names list
+      ansible.builtin.set_fact:
+        filter_names_only: "{{ filter_list.list | map(attribute='name') | list }}"
+
+    - name: Update username and password variables
+      ansible.builtin.set_fact:
+        ansible_user: "{{ api_username }}"
+        ansible_password: "{{ api_password }}"
+
+    - name: Get FMC Domain List
+      cisco.fmcansible.fmc_configuration:
+        operation: getAllDomain
+        register_as: domain
+
+    - name: Get the UUID of the domain {{ domain_name }}
+      vars:
+        json_query: "[?name=='{{ domain_name }}'].uuid | [0]"
+      ansible.builtin.set_fact:
+        domain_uuid: "{{ domain | community.general.json_query(json_query) }}"
+
+    - name: Get all devices in the domain {{ domain_name }}
+      cisco.fmcansible.fmc_configuration:
+        operation: "getAllDevice"
+        path_params:
+          domainUUID: "{{ domain_uuid }}"
+        query_params:
+          expanded: true
+        register_as: devices
+
+    - name: Get the UUID of the ACP associated to the FTD {{ device_name }}
+      vars:
+        json_query: "[?name=='{{ device_name }}'].accessPolicy.id | [0]"
+      ansible.builtin.set_fact:
+        container_uuid: "{{ devices | community.general.json_query(json_query) }}"
+
+    - name: Get UUID of the FTD {{ device_name }}
+      vars:
+        json_query: "[?name=='{{ device_name }}'].id | [0]"
+      ansible.builtin.set_fact:
+        device_uuid: "{{ devices | community.general.json_query(json_query) }}"
+
+    - name: Get the Access Control Policy total pages
+      cisco.fmcansible.fmc_configuration:
+        operation: "getAllAccessRule"
+        path_params:
+          domainUUID: "{{ domain_uuid }}"
+          containerUUID: "{{ container_uuid }}"
+        query_params:
+          filter: "deviceId:{{ device_uuid }}"
+          limit: "{{ limit }}"
+          expanded: true
+      register: access_rules
+
+    - name: Get all access control rules
+      ansible.builtin.include_tasks: tasks/get_full_list.yml
+      loop: "{{ range(0, access_rules.response.paging.pages | int) }}"
+      loop_control:
+        loop_var: page
+
+    - name: Get the list filtered
+      vars:
+        keys_to_remove:
+          - metadata
+          - commentHistoryList
+        access_rules_depurated: "{{ all_access_rules | ansible.utils.remove_keys(keys_to_remove) }}"
+        filtered_access_rules: "{{ access_rules_depurated | selectattr('name', 'in', filter_names_only) | list }}"
+      ansible.builtin.set_fact:
+        rules_to_be_disabled: "{{ filtered_access_rules | map('combine', {'enabled': false}) | list }}"
+
+    - name: Print the number of rules to be disabled
+      vars:
+      ansible.builtin.debug:
+        msg: "{{ rules_to_be_disabled | length }}"
+
+    # - name: Disable the rules one by one
+    #   cisco.fmcansible.fmc_configuration:
+    #     operation: "updateAccessRule"
+    #     path_params:
+    #       domainUUID: "{{ domain_uuid }}"
+    #       containerUUID: "{{ container_uuid }}"
+    #       objectId: "{{ item.id }}"
+    #     data: "{{ item }}"
+    #     query_params:
+    #       partialUpdate: true
+    #   loop: "{{ rules_to_be_disabled }}"
+
+    - name: Disable the rules in bulk
+      cisco.fmcansible.fmc_configuration:
+        operation: "updateMultipleAccessRule"
+        path_params:
+          domainUUID: "{{ domain_uuid }}"
+          containerUUID: "{{ container_uuid }}"
+        data: "{{ rules_to_be_disabled }}"
+        query_params:
+          bulk: true
+          partialUpdate: true
